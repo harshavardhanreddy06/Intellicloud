@@ -22,27 +22,11 @@ import torch
 import torch.nn as nn
 
 import joblib
-
+import shap
+import matplotlib.pyplot as plt
 from feature_extractor import TaskFeatureExtractor
 
-# ----------------------------------------------------------------------------
-# Encoder architecture (must match the trained model)
-# ----------------------------------------------------------------------------
-class Encoder(nn.Module):
-    """
-    Architecture: 8 → 64 → 4
-    Mirrors src/ml_models/encoder.py so we don't need a cross-folder import.
-    """
-    def __init__(self, input_dim=8, latent_dim=4, hidden_dim=64):
-        super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, latent_dim)
-        )
-
-    def forward(self, x):
-        return self.encoder(x)
+from autoencoder_system import Encoder
 
 # ----------------------------------------------------------------------------
 # Feature ordering — maps feature_extractor output → encoder input vector
@@ -242,6 +226,11 @@ class IntelliCloudPredictor:
         self.pipeline = TaskPipeline()
         self.rf_model = joblib.load("models/random_forest_energy_efficiency.pkl")
         self.rf_scaler = joblib.load("models/rf_scaler.pkl")
+        
+        # Initialize SHAP explainer (caching it for performance)
+        print("   → Initializing SHAP explainer...")
+        self.explainer = shap.TreeExplainer(self.rf_model)
+        
         print("✓ All models loaded successfully")
 
     def predict_energy_efficiency(self, task_dict):
@@ -303,6 +292,15 @@ class IntelliCloudPredictor:
                 5: "Schedule on eco-optimized VM (excellent efficiency)"
             }
 
+            # --- GENERATE SHAP EXPLANATION ---
+            try:
+                # Pass a unique identifier (task_type + index or similar)
+                task_id = f"{task_dict.get('task_type', 'task')}_size{task_dict.get('input_size_mb', '0')}"
+                shap_path = self.generate_shap_explanation(features_scaled, prediction, task_id)
+            except Exception as shap_e:
+                print(f"   ⚠️  SHAP generation failed: {shap_e}")
+                shap_path = "failed"
+
             # Create complete JSON response
             response = {
                 "task_info": task_dict,
@@ -319,9 +317,9 @@ class IntelliCloudPredictor:
                     "latent_f2": float(result_12['latent_f2']),
                     "latent_f3": float(result_12['latent_f3']),
                     "latent_f4": float(result_12['latent_f4']),
-                    "exact_match_found": result_12['exact_match_found'],  # Boolean flag for exact match vs estimation
-                    "is_scaled": result_12['is_scaled'],                   # Boolean flag for scaling usage
-                    "is_having_history": result_12['is_having_history']   # Boolean flag for history availability
+                    "exact_match_found": result_12['exact_match_found'],
+                    "is_scaled": result_12['is_scaled'],
+                    "is_having_history": result_12['is_having_history']
                 },
                 "prediction": {
                     "energy_efficiency_class": int(prediction),
@@ -333,7 +331,8 @@ class IntelliCloudPredictor:
                         "class_3": float(probabilities[2]),
                         "class_4": float(probabilities[3]),
                         "class_5": float(probabilities[4])
-                    }
+                    },
+                    "explanation_image": shap_path
                 },
                 "vm_scheduling": {
                     "recommendation": vm_recommendations[prediction],
@@ -352,6 +351,95 @@ class IntelliCloudPredictor:
                 "task_info": task_dict,
                 "status": "failed"
             }
+
+    def generate_shap_explanation(self, features_scaled, prediction, task_id):
+        """Generate a complete, self-explanatory SHAP report image."""
+        shap_values = self.explainer.shap_values(features_scaled)
+        
+        probs = self.rf_model.predict_proba(features_scaled)[0]
+        classes = self.rf_model.classes_
+        sorted_idx = np.argsort(probs)[::-1]
+        top_idx, second_idx = sorted_idx[0], (sorted_idx[1] if len(sorted_idx) > 1 else sorted_idx[0])
+        
+        pred_class, second_class = classes[top_idx], classes[second_idx]
+        shap_top, shap_second = shap_values[0, :, top_idx], shap_values[0, :, second_idx]
+        
+        feature_names = [
+            'Input Size', 'CPU Focus', 'Memory', 'Time', 'Complexity', 'Network', 'Power', 'Size Class', 'AE-F1', 'AE-F2', 'AE-F3', 'AE-F4'
+        ]
+        
+        # Focus on top features for clarity
+        abs_top = np.abs(shap_top)
+        top_indices = np.argsort(abs_top)[-10:]
+        names_sorted = [feature_names[i] for i in top_indices]
+        top_sorted = shap_top[top_indices]
+        second_sorted = shap_second[top_indices]
+        
+        # 1. Create figure with extra width for the sidebar
+        fig, ax = plt.subplots(figsize=(16, 10))
+        y = np.arange(len(names_sorted))
+        
+        # Main Bars
+        b1 = ax.barh(y + 0.18, top_sorted, 0.35, label=f'Impact on Class {pred_class} (Chosen)', color='#1abc9c', edgecolor='#16a085')
+        b2 = ax.barh(y - 0.18, second_sorted, 0.35, label=f'Impact on Class {second_class} (Runner-up)', color='#e67e22', edgecolor='#d35400', alpha=0.5)
+        
+        # 2. Add value labels
+        for rect in b1:
+            width = rect.get_width()
+            ax.text(width + (0.005 if width >= 0 else -0.005), rect.get_y() + rect.get_height()/2, 
+                    f'{width:+.2f}', va='center', ha='left' if width >= 0 else 'right', fontsize=10, fontweight='bold', color='#16a085')
+
+        ax.set_yticks(y)
+        ax.set_yticklabels(names_sorted, fontsize=12, fontweight='bold')
+        ax.grid(axis='x', linestyle=':', alpha=0.5)
+        ax.axvline(0, color='black', linewidth=1.5)
+        
+        # 3. Headers and Labels
+        ax.set_title(f'INTELLICLOUD EXPLANATION REPORT: {task_id.upper()}', fontsize=20, fontweight='bold', color='#2c3e50', pad=50)
+        ax.set_xlabel('SHAP VALUE (Influence on AI Decision)\n[Positive = Pushes AI toward this Class | Negative = Pushes AI AWAY]', fontsize=12, labelpad=20)
+        
+        # 4. Comprehensive Sidebar (Guide for Beginners)
+        guide_text = (
+            "📊 HOW TO READ THIS REPORT\n"
+            "------------------------------------\n"
+            f"🎯 CHOSEN: Class {pred_class} ({probs[top_idx]:.1%} confidence)\n"
+            f"🥈 RUNNER-UP: Class {second_class} ({probs[second_idx]:.1%} confidence)\n\n"
+            "🔹 WHAT ARE THE BARS?\n"
+            "Each bar shows how much a specific feature\n"
+            "(like CPU or Power) influenced the AI's choice.\n\n"
+            "🔹 POSITIVE (Bars to the RIGHT):\n"
+            "This feature STRONGLY SUGGESTS the AI \n"
+            "should choose this class.\n\n"
+            "🔹 NEGATIVE (Bars to the LEFT):\n"
+            "This feature implies this class is less likely.\n\n"
+            "🔹 COLOR GUIDE:\n"
+            "TEAL   = Support for the Chosen Class.\n"
+            "ORANGE = Support for the Runner-up Class.\n\n"
+            "💡 BIGGEST FACTOR:\n"
+            f"The feature '{names_sorted[-1].upper()}' was the\n"
+            "main reason for this classification."
+        )
+        
+        # Using a text box on the right side
+        plt.figtext(0.80, 0.5, guide_text, fontsize=11, family='monospace', 
+                    bbox=dict(facecolor='#f7faff', alpha=1.0, boxstyle='round,pad=1.5', edgecolor='#3498db', linewidth=2),
+                    va='center')
+
+        # 5. Move Legend
+        ax.legend(loc='upper left', bbox_to_anchor=(0.0, -0.1), ncol=2, fontsize=12, frameon=True, shadow=True)
+        
+        # Final layout adjustments
+        plt.subplots_adjust(right=0.78, bottom=0.15, top=0.90)
+        
+        output_dir = Path("shap_explanations")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        safe_id = task_id.replace(' ', '_').replace('.', '_')
+        img_path = output_dir / f"explanation_{safe_id}.png"
+        
+        plt.savefig(img_path, dpi=130, bbox_inches='tight')
+        plt.close()
+        print(f"   ✓ SHAP explanation report generated: {img_path}")
+        return str(img_path)
 
 # ----------------------------------------------------------------------------
 # Global predictor instance for API usage
@@ -381,7 +469,7 @@ def predict_task_energy(task_dict):
 # ----------------------------------------------------------------------------
 # Demo and Testing Functionality
 # ----------------------------------------------------------------------------
-def demonstrate_complete_pipeline():
+def demonstrate_complete_pipeline(tasks=None):
     """
     Demonstrate the complete IntelliCloud pipeline workflow.
     """
@@ -389,169 +477,57 @@ def demonstrate_complete_pipeline():
     print("INTELLICLOUD PIPELINE DEMO - SHERA METHODOLOGY")
     print("=" * 80)
 
-    # 1. Initialize Pipeline (loads feature extractor, scaler, and trained autoencoder)
-    print("\n1. Initializing Pipeline...")
-    pipeline = TaskPipeline()
-    print("   ✓ Pipeline ready with trained autoencoder")
+    # 1. Initialize Predictor (which handles features, RF, and SHAP)
+    print("\n1. Initializing IntelliCloud Predictor...")
+    predictor = get_predictor()
+    print("   ✓ All models (Encoder, RF, SHAP) ready")
 
-    # 2. Load Random Forest model
-    print("\n2. Loading Random Forest model...")
-    rf_model = joblib.load("models/random_forest_energy_efficiency.pkl")
-    rf_scaler = joblib.load("models/rf_scaler.pkl")
-    print("   ✓ Random Forest loaded (trained on 12 features)")
-
-    # 3. Example incoming tasks
-    incoming_tasks = [
-        {
-            "task_type": "matrix_multiplication",
-            "input_size_mb": 4.0,  # Unusual size that won't match exactly
-            "complexity": "high",
-            "priority": "critical",
-            "application": "scientific_computing"
-        }
-    ]
+    # 3. Example incoming tasks (now passed as argument)
+    if tasks is None:
+        print("   ⚠️  No tasks provided for demonstration.")
+        return
 
     print("\n3. Processing Incoming Tasks...")
     print("-" * 50)
 
-    for i, task in enumerate(incoming_tasks, 1):
+    for i, task in enumerate(tasks, 1):
         print(f"\n📋 Task {i}: {task['task_type']} ({task['input_size_mb']} MB)")
 
-        # Step 1: Extract 8 features using historical data
-        print("   → Extracting 8 features from historical profiles...")
-        features_8 = pipeline.extractor.extract_features(task)
-
-        if features_8 is None:
-            print("   ⚠️  Feature extraction failed (invalid input_size_mb)")
+        # Full Prediction (including SHAP)
+        print("   → Running full SHERA Pipeline...")
+        prediction_result = predictor.predict_energy_efficiency(task)
+        
+        if "error" in prediction_result:
+            print(f"   ⚠️  Prediction failed: {prediction_result['error']}")
             continue
 
-        print("   ✓ 8 features extracted:")
-        cpu_val = features_8['cpu_usage_cores_absolute']
-        mem_val = features_8['memory_usage_mb']
-        power_val = features_8['power_consumption_watts']
-        print(f"     CPU: {cpu_val:.3f} cores")
-        print(f"     Memory: {mem_val:.1f} MB")
-        print(f"     Power: {power_val:.1f} W")
-
-        # Step 2: Get 4 latent features from autoencoder
-        print("   → Generating 4 latent features via autoencoder...")
-        result_12 = pipeline.run(task)
-
-        if result_12 is None:
-            print("   ⚠️  Pipeline processing failed")
-            continue
-
-        print("   ✓ 4 latent features generated:")
-        f1 = result_12['latent_f1']
-        f2 = result_12['latent_f2']
-        f3 = result_12['latent_f3']
-        f4 = result_12['latent_f4']
-        print(f"     Latent F1: {f1:.6f}")
-        print(f"     Latent F2: {f2:.6f}")
-        print(f"     Latent F3: {f3:.6f}")
-        print(f"     Latent F4: {f4:.6f}")
-
-        # Step 3: Prepare 12 features for Random Forest
-        features_12 = [
-            result_12['input_size_mb'],
-            result_12['cpu_usage_cores_absolute'],
-            result_12['memory_usage_mb'],
-            result_12['execution_time_normalized'],
-            result_12['instruction_count'],
-            result_12['network_io_mb'],
-            result_12['power_consumption_watts'],
-            0 if result_12['task_size_category'] == 'SMALL' else
-            1 if result_12['task_size_category'] == 'MEDIUM' else 2,
-            result_12['latent_f1'],
-            result_12['latent_f2'],
-            result_12['latent_f3'],
-            result_12['latent_f4']
-        ]
-
-        # Step 4: Random Forest prediction
-        print("   → Predicting energy efficiency with Random Forest...")
-        features_scaled = rf_scaler.transform(np.array(features_12).reshape(1, -1))
-        prediction = rf_model.predict(features_scaled)[0]
-        probabilities = rf_model.predict_proba(features_scaled)[0]
-
-        efficiency_levels = {
-            1: "Very Low (0-20%)",
-            2: "Low (20-40%)",
-            3: "Medium (40-60%)",
-            4: "High (60-80%)",
-            5: "Very High (80-100%)"
-        }
-
+        prediction = prediction_result['prediction']['energy_efficiency_class']
+        efficiency_level = prediction_result['prediction']['efficiency_level']
+        confidence = prediction_result['prediction']['confidence']
+        
         print(f"   🎯 Energy Efficiency Prediction: Class {prediction}")
-        print(f"      Level: {efficiency_levels[prediction]}")
-        print(f"      Confidence: {probabilities[prediction-1]:.3f}")
-
-        # Step 5: VM Scheduling Recommendation (based on efficiency)
-        vm_recommendations = {
-            1: "Schedule on high-performance VM (needs optimization)",
-            2: "Schedule on standard VM with monitoring",
-            3: "Schedule on balanced VM",
-            4: "Schedule on efficient VM",
-            5: "Schedule on eco-optimized VM (excellent efficiency)"
-        }
-
-        # Step 5: Create complete JSON output
-        prediction_result = {
-            "task_info": task,
-            "features": {
-                "input_size_mb": result_12['input_size_mb'],
-                "cpu_usage_cores_absolute": result_12['cpu_usage_cores_absolute'],
-                "memory_usage_mb": result_12['memory_usage_mb'],
-                "execution_time_normalized": result_12['execution_time_normalized'],
-                "instruction_count": result_12['instruction_count'],
-                "network_io_mb": result_12['network_io_mb'],
-                "power_consumption_watts": result_12['power_consumption_watts'],
-                "task_size_category": result_12['task_size_category'],
-                "latent_f1": result_12['latent_f1'],
-                "latent_f2": result_12['latent_f2'],
-                "latent_f3": result_12['latent_f3'],
-                "latent_f4": result_12['latent_f4'],
-                "exact_match_found": result_12['exact_match_found'],  # NEW: Boolean flag
-                "is_scaled": result_12['is_scaled'],
-                "is_having_history": result_12['is_having_history']
-            },
-            "prediction": {
-                "energy_efficiency_class": int(prediction),
-                "efficiency_level": efficiency_levels[prediction],
-                "confidence": float(probabilities[prediction-1]),
-                "all_probabilities": {
-                    "class_1": float(probabilities[0]),
-                    "class_2": float(probabilities[1]),
-                    "class_3": float(probabilities[2]),
-                    "class_4": float(probabilities[3]),
-                    "class_5": float(probabilities[4])
-                }
-            },
-            "vm_scheduling": {
-                "recommendation": vm_recommendations[prediction],
-                "priority": "high" if prediction <= 2 else "medium" if prediction == 3 else "low"
-            },
-            "processing_timestamp": "2025-02-23T22:55:00Z"  # Would be dynamic in production
-        }
+        print(f"      Level: {efficiency_level}")
+        print(f"      Confidence: {confidence:.3f}")
 
         print("\n  ── 8 Extracted Features ──────────────────────────")
-        print(f"    input_size_mb             : {result_12['input_size_mb']}")
-        print(f"    cpu_usage_cores_absolute  : {result_12['cpu_usage_cores_absolute']}")
-        print(f"    memory_usage_mb           : {result_12['memory_usage_mb']}")
-        print(f"    execution_time_normalized : {result_12['execution_time_normalized']}")
-        print(f"    instruction_count         : {result_12['instruction_count']:,}")
-        print(f"    network_io_mb             : {result_12['network_io_mb']}")
-        print(f"    power_consumption_watts   : {result_12['power_consumption_watts']}")
-        print(f"    task_size_category        : {result_12['task_size_category']}")
-        print(f"    exact_match_found         : {result_12['exact_match_found']} {'✅' if result_12['exact_match_found'] else '⚠️ (estimated)'}")
-        print(f"    is_scaled                 : {result_12['is_scaled']} {'🔧' if result_12['is_scaled'] else '📏'}")
-        print(f"    is_having_history         : {result_12['is_having_history']} {'📚' if result_12['is_having_history'] else '❓'}")
+        f = prediction_result['features']
+        print(f"    input_size_mb             : {f['input_size_mb']}")
+        print(f"    cpu_usage_cores_absolute  : {f['cpu_usage_cores_absolute']}")
+        print(f"    memory_usage_mb           : {f['memory_usage_mb']}")
+        print(f"    execution_time_normalized : {f['execution_time_normalized']}")
+        print(f"    instruction_count         : {f['instruction_count']:,}")
+        print(f"    network_io_mb             : {f['network_io_mb']}")
+        print(f"    power_consumption_watts   : {f['power_consumption_watts']}")
+        print(f"    task_size_category        : {f['task_size_category']}")
+        print(f"    exact_match_found         : {f['exact_match_found']} {'✅' if f['exact_match_found'] else '⚠️ (estimated)'}")
+        print(f"    is_scaled                 : {f['is_scaled']} {'🔧' if f['is_scaled'] else '📏'}")
+        print(f"    is_having_history         : {f['is_having_history']} {'📚' if f['is_having_history'] else '❓'}")
 
         print("\n  ── 4 Latent Features (Encoder Output) ────────────")
-        print(f"    latent_f1 : {result_12['latent_f1']}")
-        print(f"    latent_f2 : {result_12['latent_f2']}")
-        print(f"    latent_f3 : {result_12['latent_f3']}")
-        print(f"    latent_f4 : {result_12['latent_f4']}")
+        print(f"    latent_f1 : {f['latent_f1']}")
+        print(f"    latent_f2 : {f['latent_f2']}")
+        print(f"    latent_f3 : {f['latent_f3']}")
+        print(f"    latent_f4 : {f['latent_f4']}")
 
         print(f"   📄 Complete JSON Result:")
         print(json.dumps(prediction_result, indent=4))
@@ -567,22 +543,14 @@ def demonstrate_complete_pipeline():
 # Main entry point
 # ----------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Run demo by default
-    demonstrate_complete_pipeline()
+    # Load tasks from tasks.json
+    tasks_file = "tasks.json"
+    try:
+        with open(tasks_file, 'r') as f:
+            tasks_data = json.load(f)
+    except Exception as e:
+        print(f"⚠️ Error loading {tasks_file}: {e}")
+        tasks_data = []
 
-    # Example of API usage (uncomment to test)
-    print("\n" + "="*60)
-    print("API USAGE EXAMPLE:")
-    print("="*60)
-
-    test_task = {
-        "task_type": "matrix_multiplication",
-        "input_size_mb": 50.0,
-        "complexity": "high",
-        "priority": "critical",
-        "application": "scientific_computing"
-    }
-
-    result = predict_task_energy(test_task)
-    print("API Result:")
-    print(json.dumps(result, indent=2))
+    # Run demo with tasks from JSON
+    demonstrate_complete_pipeline(tasks_data)
