@@ -1,0 +1,24 @@
+FROM python:3.9-slim
+
+# Install system tools: ffmpeg (includes ffprobe), audio/image libs
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Python dependencies — only what the executor actually uses
+RUN pip install --no-cache-dir \
+    Pillow \
+    pydub \
+    PyPDF2 \
+    psutil \
+    numpy
+
+# The main multi-modal executor
+COPY unified_executor.py .
+
+# Standard Entrypoint
+ENTRYPOINT ["python3"]
