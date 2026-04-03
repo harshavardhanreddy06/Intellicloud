@@ -305,17 +305,25 @@ const App = () => {
                             <div className="card stat-card full-width">
                                 <div className="card-header-flex">
                                     <h3><Database size={20}/> SHERA Intelligent Telemetry</h3>
-                                    <div className="efficiency-badge">{result.prediction.prediction.energy_efficiency_class}</div>
+                                    <div className="efficiency-badge">
+                                        {(() => {
+                                            const c = result.prediction.prediction.energy_efficiency_class;
+                                            if (c >= 5) return `Ultra Efficient (${c})`;
+                                            if (c >= 4) return `High Efficiency (${c})`;
+                                            if (c >= 3) return `Balance Power (${c})`;
+                                            return `Low Efficiency (${c})`;
+                                        })()}
+                                    </div>
                                 </div>
                                 <div className="stat-grid-12">
                                     <div className="stat-blob"><span>Input Vol</span><strong>{(result.prediction.features?.input_size_mb || 0).toFixed(2)} MB</strong></div>
                                     <div className="stat-blob"><span>Execute Site</span><strong className="green">{result.execution.remote_node || "MASTER"}</strong></div>
                                     <div className="stat-blob"><span>Confidence</span><strong>{(result.prediction.prediction.confidence * 100).toFixed(1)}%</strong></div>
-                                    <div className="stat-blob"><span>Complexity</span><strong>{(result.prediction.features?.complexity_score || 0).toFixed(2)}</strong></div>
+                                    <div className="stat-blob"><span>Memory Used</span><strong>{(result.execution?.metrics?.MemoryMB || result.execution?.metrics?.MEM || 0).toFixed(1)} MB</strong></div>
                                     <div className="stat-blob"><span>Allocation</span><strong>{(result.execution?.metrics?.CPU / 100 || 0).toFixed(2)} c</strong></div>
-                                    <div className="stat-blob"><span>Mem Load</span><strong>{(result.execution?.metrics?.MemoryMB || result.execution?.metrics?.MEM || 0).toFixed(1)} MB</strong></div>
-                                    <div className="stat-blob"><span>Hist. Delta</span><strong>{(result.prediction.features?.historical_lat_ms || 0).toFixed(1)} ms</strong></div>
-                                    <div className="stat-blob"><span>SLA Index</span><strong>{result.prediction.features?.priority_level}</strong></div>
+                                    <div className="stat-blob"><span>Mem Segment</span><strong>{(result.execution?.metrics?.MemoryMB || result.execution?.metrics?.MEM || 0).toFixed(1)} MB</strong></div>
+                                    <div className="stat-blob"><span>Execution Time</span><strong>{result.execution.duration.toFixed(3)} s</strong></div>
+                                    <div className="stat-blob"><span>Power Consumed</span><strong>{result.execution.energy.joules} J</strong></div>
                                 </div>
                             </div>
 
@@ -464,9 +472,21 @@ const App = () => {
                 .energy-footer-card { padding: 40px 60px; background: linear-gradient(to right, #1e3a8a, #020617); border: 2px solid #3b82f6; }
                 .joules-val { font-size: 3rem; font-weight: 900; color: #fff; }
                 .saving-percent { font-size: 3.5rem; font-weight: 900; color: #10b981; line-height: 1; }
-
                 .spin { animation: spin 1s linear infinite; }
                 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+                .modal-overlay { 
+                    position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+                    background: rgba(0, 0, 0, 0.95); 
+                    display: flex; align-items: center; justify-content: center; 
+                    z-index: 10000; backdrop-filter: blur(10px); 
+                    cursor: zoom-out; padding: 40px;
+                }
+                .modal-overlay img { 
+                    max-width: 95%; max-height: 90vh; 
+                    border-radius: 16px; box-shadow: 0 0 40px rgba(0,0,0,0.8);
+                    border: 1px solid rgba(255,255,255,0.1);
+                }
             `}</style>
         </div>
     );
