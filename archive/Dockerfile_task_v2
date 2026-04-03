@@ -1,0 +1,10 @@
+FROM python:3.9-slim
+
+WORKDIR /app
+RUN pip install --no-cache-dir Pillow psutil
+
+COPY process_image.py .
+COPY process_text.py .
+
+# Entry point will be set at runtime to choose script
+ENTRYPOINT ["python"]

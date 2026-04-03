@@ -1,0 +1,30 @@
+[
+    {
+        "task_type": "deep_learning_training",
+        "input_size_mb": 900.0,
+        "complexity": "high",
+        "priority": "critical",
+        "application": "scientific_computing"
+    },
+    {
+        "task_type": "data_sorting",
+        "input_size_mb": 600.0,
+        "complexity": "high",
+        "priority": "normal",
+        "application": "database_engine"
+    },
+    {
+        "task_type": "image_rendering",
+        "input_size_mb": 350.0,
+        "complexity": "high",
+        "priority": "low",
+        "application": "graphics_processing"
+    },
+    {
+        "task_type": "matrix_multiplication",
+        "input_size_mb": 45.0,
+        "complexity": "low",
+        "priority": "normal",
+        "application": "scientific_computing"
+    }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-04-03T11:38:56Z",
+    "task_type": "img_resize",
+    "input_size_mb": 6.369377136230469,
+    "vm_tier": "Small (0.25c)",
+    "cpus": 0.25,
+    "real_duration_s": 6.65005898475647,
+    "real_cpu_pct": 36.0,
+    "real_mem_mb": 35.1,
+    "real_joules": 123.69,
+    "savings_pct": 92.2
+  },
+  {
+    "timestamp": "2026-04-03T11:39:25Z",
+    "task_type": "img_resize",
+    "input_size_mb": 6.369377136230469,
+    "vm_tier": "Small (0.25c)",
+    "cpus": 0.25,
+    "real_duration_s": 5.675981760025024,
+    "real_cpu_pct": 36.0,
+    "real_mem_mb": 35.1,
+    "real_joules": 105.57,
+    "savings_pct": 92.2
+  },
+  {
+    "timestamp": "2026-04-03T11:40:39Z",
+    "task_type": "img_resize",
+    "input_size_mb": 6.369377136230469,
+    "vm_tier": "Small (0.25c)",
+    "cpus": 0.25,
+    "real_duration_s": 6.8044679164886475,
+    "real_cpu_pct": 36.0,
+    "real_mem_mb": 35.1,
+    "real_joules": 126.56,
+    "savings_pct": 92.2
+  }
+]

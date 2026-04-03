@@ -120,6 +120,37 @@ def execute_task():
 def serve_result(filename):
     return send_from_directory(RESULT_FOLDER, filename)
 
+import argparse
+import requests
+import socket
+
+def register_with_master(master_url, my_ip):
+    try:
+        # Pokes the master to let it know we exist!
+        requests.post(f"{master_url}/api/register_node", json={"ip": my_ip}, timeout=5)
+        print(f"✅ AUTO-REGISTRATION: Successfully connected to master at {master_url}")
+    except Exception as e:
+        print(f"⚠️ AUTO-REGISTRATION: Couldn't connect to master at {master_url}. Please ensure Master API is running.")
+
 if __name__ == '__main__':
-    # Make sure to run this with your LAN IP, e.g., flask run --host=0.0.0.0 --port=5002
+    parser = argparse.ArgumentParser(description='IntelliCloud Distributed Worker')
+    parser.add_argument('--master', help='Master node URL (e.g. http://192.168.1.10:5001)')
+    args = parser.parse_args()
+
+    # Automatic local IP detection for registration
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('8.8.8.8', 80))
+        my_ip = s.getsockname()[0]
+    finally:
+        s.close()
+
+    if args.master:
+        # Strip trailing slash if present
+        master_url = args.master.rstrip('/')
+        register_with_master(master_url, my_ip)
+    else:
+        print(f"⚠️ No master URL provided. Run with --master http://MASTER_IP:5001 to auto-register.")
+
+    print(f"💻 WORKER NODE: Listening on http://{my_ip}:5002")
     app.run(host='0.0.0.0', port=5002, debug=False)
