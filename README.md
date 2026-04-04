@@ -4,6 +4,9 @@
 
 IntelliCloud implements the **SHERA methodology** (SHAP-Enhanced Resource Allocation) for intelligent cloud computing energy efficiency prediction. The system transforms basic task descriptions into comprehensive energy-aware scheduling decisions through a sophisticated ML pipeline: **Task → 8 Features → Autoencoder → 12 Features → Random Forest → Energy Efficiency Class + VM Scheduling Recommendations**.
 
+> [!IMPORTANT]
+> **New Documentation Center**: For a deep dive into each module (DQN, SHAP, Docker, Networking, etc.), please visit the [**Documentation Index**](documentation/INDEX.md).
+
 ## 🔄 Complete Pipeline Architecture & Logic
 
 ### **Pipeline Flow Overview**
