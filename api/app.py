@@ -26,7 +26,8 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 # Configuration (Anchored to Root)
 UPLOAD_FOLDER = str(BASE_DIR / 'uploads')
-SHAP_FOLDER = str(BASE_DIR / 'shap_explanations')
+# SHAP images are saved inside api/shap_explanations/ by core/start.py
+SHAP_FOLDER = str(Path(__file__).resolve().parent / 'shap_explanations')
 RESULT_FOLDER = str(BASE_DIR / 'results')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(SHAP_FOLDER, exist_ok=True)
@@ -167,8 +168,44 @@ def submit_task():
             socketio.emit('pipeline_update', {'stage': 'EXECUTING', 'message': 'Running on Master Laptop...'})
             script_name = get_script_for_task(task_type)
             base_name = input_filename.rsplit('.', 1)[0] if '.' in input_filename else input_filename
-            EXT_MAP = {'img_resize': 'jpg', 'vid_cropping': 'mp4', 'aud_noise_red': 'mp3', 'pdf_merge': 'pdf'} # Minimal map for brevity
-            ext = EXT_MAP.get(task_type, 'bin')
+            # Complete extension map for all 30 tasks — no .bin fallback
+            EXT_MAP = {
+                # Image (10)
+                'img_resize':        'jpg',
+                'img_cropping':      'jpg',
+                'img_compression':   'jpg',
+                'img_format_conv':   'jpg',   # executor may change ext internally
+                'img_watermark':     'jpg',
+                'img_puzzle_split':  'jpg',
+                'img_color_corr':    'jpg',
+                'img_bg_removal':    'png',
+                'img_annotation':    'jpg',
+                'img_batch_rename':  'jpg',
+                # Video (10)
+                'vid_cropping':         'mp4',
+                'vid_trimming':         'mp4',
+                'vid_compression':      'mp4',
+                'vid_remove_audio':     'mp4',
+                'vid_add_subtitles':    'mp4',
+                'vid_format_conv':      'mp4',
+                'vid_frame_extraction': 'zip',
+                'vid_gif_creation':     'gif',
+                'vid_watermarking':     'mp4',
+                'vid_split_segments':   'zip',
+                # Audio (5)
+                'aud_noise_red':     'mp3',
+                'aud_format_conv':   'mp3',
+                'aud_trimming':      'mp3',
+                'aud_normalization': 'mp3',
+                'aud_split_track':   'zip',
+                # PDF (5)
+                'pdf_merge':      'pdf',
+                'pdf_split':      'pdf',
+                'pdf_to_office':  'txt',
+                'pdf_password':   'pdf',
+                'pdf_extraction': 'txt',
+            }
+            ext = EXT_MAP.get(task_type, 'pdf')  # safe fallback
             output_filename = f"res_{int(time.time())}_{base_name}.{ext}"
 
             params_dict = json.loads(raw_params)
@@ -278,6 +315,22 @@ def submit_task():
 @app.route('/shap_explanations/<path:filename>')
 def serve_shap(filename):
     return send_from_directory(SHAP_FOLDER, filename)
+
+@app.route('/results/<path:filename>')
+def serve_results_folder_static(filename):
+    return send_from_directory(RESULT_FOLDER, filename)
+
+@app.route('/api/latest_shap')
+def latest_shap():
+    """Returns URL of the most recently generated SHAP explanation image."""
+    try:
+        files = [f for f in os.listdir(SHAP_FOLDER) if f.endswith('.png')]
+        if not files:
+            return jsonify({'url': None}), 404
+        latest = max(files, key=lambda f: os.path.getmtime(os.path.join(SHAP_FOLDER, f)))
+        return jsonify({'url': f'/shap_explanations/{latest}', 'filename': latest})
+    except Exception as e:
+        return jsonify({'url': None, 'error': str(e)}), 500
 
 @app.route('/results/<path:filename>')
 def serve_result(filename):

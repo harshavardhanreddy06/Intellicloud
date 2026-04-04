@@ -69,10 +69,19 @@ def execute_task():
         # 2. Extract Deployment Tier
         tier_id = int(params.get('tier_id', 2))
         tier = TIER_CONFIGS.get(tier_id, TIER_CONFIGS[2])
-        task_type = params.get('task_type', 'img_resize')
-        
-        # Determine output filename
-        ext = filename.rsplit('.', 1)[-1] if '.' in filename else 'bin'
+        # Global Extension Map for Workers (aligned with Master)
+        EXT_MAP = {
+            'img_resize': 'jpg', 'img_cropping': 'jpg', 'img_compression': 'jpg', 'img_format_conv': 'jpg',
+            'img_watermark': 'jpg', 'img_puzzle_split': 'jpg', 'img_color_corr': 'jpg', 'img_bg_removal': 'png',
+            'img_annotation': 'jpg', 'img_batch_rename': 'jpg',
+            'vid_cropping': 'mp4', 'vid_trimming': 'mp4', 'vid_compression': 'mp4', 'vid_remove_audio': 'mp4',
+            'vid_add_subtitles': 'mp4', 'vid_format_conv': 'mp4', 'vid_frame_extraction': 'zip',
+            'vid_gif_creation': 'gif', 'vid_watermarking': 'mp4', 'vid_split_segments': 'zip',
+            'aud_noise_red': 'mp3', 'aud_format_conv': 'mp3', 'aud_trimming': 'mp3', 'aud_normalization': 'mp3',
+            'aud_split_track': 'zip',
+            'pdf_merge': 'pdf', 'pdf_split': 'pdf', 'pdf_to_office': 'txt', 'pdf_password': 'pdf', 'pdf_extraction': 'txt',
+        }
+        ext = EXT_MAP.get(task_type, 'pdf')
         output_filename = f"res_{task_id}.{ext}"
         output_path = os.path.join(RESULT_FOLDER, output_filename)
 
