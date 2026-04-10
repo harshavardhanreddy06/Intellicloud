@@ -45,22 +45,24 @@ def health():
 def execute_task():
     try:
         # 1. Received Payload and Params
-        if 'file' not in request.files:
-            return jsonify({"status": "error", "message": "No file uploaded"}), 400
+        if not request.files:
+            return jsonify({"status": "error", "message": "No files uploaded"}), 400
 
-        file = request.files['file']
         params_json = request.form.get('params', '{}')
         params = json.loads(params_json)
+        task_type = params.get('task_type', 'img_resize')
         
         task_id = f"worker_task_{int(time.time())}"
         task_dir = os.path.join(UPLOAD_FOLDER, task_id)
         os.makedirs(task_dir, exist_ok=True)
 
-        # Save Payload
-        filename = file.filename
-        file_path = os.path.join(task_dir, filename)
-        file.save(file_path)
-        input_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        # Save all Payload files
+        input_size_mb = 0
+        for key in request.files:
+            f = request.files[key]
+            file_path = os.path.join(task_dir, f.filename)
+            f.save(file_path)
+            input_size_mb += os.path.getsize(file_path) / (1024 * 1024)
 
         # Save params.json for the container
         with open(os.path.join(task_dir, "params.json"), 'w') as f:

@@ -222,8 +222,19 @@ const App = () => {
         if (isUpload) {
             const files = fileInputRef.current.files;
             if (!files || files.length === 0) { alert('Please upload a file.'); setLoading(false); return; }
-            formData.append('file', files[0]);
-            formData.append('input_size_mb', (files[0].size / (1024 * 1024)).toFixed(2));
+            
+            // Append all files for pdf_merge, otherwise just the first one
+            if (taskType === 'pdf_merge') {
+                for (let i = 0; i < files.length; i++) {
+                    formData.append(`file_${i}`, files[i]);
+                }
+            } else {
+                formData.append('file', files[0]);
+            }
+            
+            let totalSize = 0;
+            for (let i = 0; i < files.length; i++) totalSize += files[i].size;
+            formData.append('input_size_mb', (totalSize / (1024 * 1024)).toFixed(2));
         } else {
             formData.append('raw_data', manualText);
             formData.append('input_size_mb', 0.1);
@@ -318,12 +329,23 @@ const App = () => {
 
                             {isUpload ? (
                                 <div className="dropzone" onClick={() => fileInputRef.current.click()}>
-                                    <input ref={fileInputRef} type="file" accept={currentAccept} hidden onChange={e => setFile(e.target.files[0])} />
+                                    <input 
+                                        ref={fileInputRef} 
+                                        type="file" 
+                                        accept={currentAccept} 
+                                        hidden 
+                                        multiple={taskType === 'pdf_merge'}
+                                        onChange={e => setFile(e.target.files)} 
+                                    />
                                     <Upload size={26} color="#3b82f6" />
                                     <div className="drop-hint">
-                                        {file
-                                            ? <span className="drop-filename" title={file.name}>{file.name}</span>
-                                            : <span className="drop-placeholder">Drop {currentAccept.replace('/*','').replace('.','')} file here</span>
+                                        {file && file.length > 0
+                                            ? <span className="drop-filename">
+                                                {file.length === 1 ? file[0].name : `${file.length} files selected`}
+                                              </span>
+                                            : <span className="drop-placeholder">
+                                                Drop {taskType === 'pdf_merge' ? 'PDF files' : `${currentAccept.replace('/*','').replace('.','')} file`} here
+                                              </span>
                                         }
                                     </div>
                                 </div>

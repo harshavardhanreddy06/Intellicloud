@@ -247,12 +247,19 @@ def submit_task():
             params_dict = json.loads(raw_params)
             params_dict.update({'task_type': task_type, 'tier_id': action_id})
             
-            with open(first_file_path, 'rb') as f:
-                files = {'file': (input_filename, f)}
-                payload = {'params': json.dumps(params_dict)}
-                
+            # Dispatch ALL files in the task directory to the remote worker
+            files_to_send = {}
+            for fname in os.listdir(task_dir):
+                if fname == 'params.json': continue
+                fpath = os.path.join(task_dir, fname)
+                if os.path.isfile(fpath):
+                    files_to_send[fname] = open(fpath, 'rb')
+
+            try:
                 socketio.emit('pipeline_update', {'stage': 'EXECUTING', 'message': f'Worker {selected_node} executing Docker...'})
-                response = requests.post(worker_url, files=files, data=payload, timeout=300)
+                response = requests.post(worker_url, files=files_to_send, data={'params': json.dumps(params_dict)}, timeout=300)
+            finally:
+                for f in files_to_send.values(): f.close()
             
             if response.status_code != 200:
                 return jsonify({"status": "error", "message": f"Remote Worker Error: {response.text}"}), 500
